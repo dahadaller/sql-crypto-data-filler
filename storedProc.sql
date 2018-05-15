@@ -98,37 +98,6 @@ CALL Table_Buy_First_Coin();
 (so you can make a profit when you sell within the exchange.)*/
 DELIMITER //
 
-CREATE PROCEDURE Compare_Current_to_Bought (
-	IN coin_name INT, 
-	OUT truth_value BOOLEAN
-)
-BEGIN
-	SET @current_price = (
-		SELECT price
-		FROM price_feed
-		WHERE coin = coin_name 
-		AND date = (
-			SELECT max(price_feed.date)
-			FROM price_feed, wallets
-			WHERE price_feed.exchange = wallets.exchange
-			AND price_feed.coin = coin_name
-			LIMIT 1
-		)
-		LIMIT 1
-	);
-
-	SET @price_bought = (
-		SELECT price
-		FROM wallets
-		WHERE coin = coin_name
-	);
-
-	SET truth_value = @current_price > @price_bought;
-END;
-//
-
-DELIMITER ;
-
 
 DELIMITER //
 
@@ -167,20 +136,27 @@ AFTER INSERT ON price_feed
 FOR EACH ROW
 BEGIN
 	SET @current_price_on_my_exchange = (
-		SELECT price
-		FROM price_feed
-		WHERE coin = 1 
+		SELECT price_feed.price
+		FROM price_feed, wallets
+		WHERE price_feed.coin = NEW.coin
+		AND price_feed.exchange = wallets.exchange
+		AND wallets.coin = NEW.coin
 		AND date = (
 			SELECT max(price_feed.date)
 			FROM price_feed, wallets
-			WHERE price_feed.exchange = wallets.exchange /*exchange already present in wallet*/
-			AND price_feed.coin = 1
-			LIMIT 1
-		) 
-		LIMIT 1
+			WHERE price_feed.coin = NEW.coin
+			AND wallets.coin = NEW.coin
+			AND price_feed.exchange = wallets.exchange 
+		)
 	);
 
-	CALL Compare_Current_to_Bought(NEW.coin, @truth_value);
+	SET @price_bought = (
+		SELECT price
+		FROM wallets
+		WHERE coin = NEW.coin
+	);
+
+	SET @price_increase = @current_price_on_my_exchange > @price_bought;
 
 	IF
 		/*1 You have the NEW.coin in your wallets and the amount (of coin) is more than zero*/
@@ -200,25 +176,12 @@ BEGIN
 		)
 			
 		/*3 The price of coin in your current exchange had to increase or stay the same (so you can make a profit when you sell within the exchange.)*/
-		AND @truth_value = true
+		AND @price_increase = true
 
 		/*4 The price of your bitcoin on your exchange had to increase relative to another fund (so you can reinvest your earnings and buy discounted coins from a cheaper exchange.)*/
 		AND NEW.price < @current_price_on_my_exchange
 
 		THEN
-			SET @current_exchange_price = (
-					SELECT price
-					FROM price_feed
-					WHERE coin = NEW.coin 
-					AND exchange = NEW.exchange
-					AND date = (
-						SELECT max(date)
-						FROM price_feed
-						WHERE exchange = NEW.exchange
-						AND coin = NEW.coin 
-				)
-			);
-
 			SET @amount = (
 				SELECT amount
 				FROM wallets
@@ -226,7 +189,7 @@ BEGIN
 			);
 
 			/*Temporary variable for fiat_now*/
-			SET @money_made = (@current_exchange_price * @amount);
+			SET @money_made = (@current_price_on_my_exchange * @amount);
 
 			SET @new_amount = (@money_made / NEW.price);
 
@@ -339,15 +302,4 @@ DELIMITER ;
 	REFERENCING NEW ROW AS new_feed 
 	not allowed to do this in for triggers in Mariadb 10.2 instead have to reference new rows as 
 	NEW and old rows as OLD in the body of the trigger.
-*/
-
-/*
-## TODO
-	-also we need to output to dollars [Done]
-	-need to calculate profit from fiat_now and fiat_start [Done]
-	-the price_feed table is empty so when I try to query it to initialize the first trade, It returns NUll. 
-		that NULL is then passed on to calculating @amount which then means calling the function Row_Buy_First_Coin
-		results in the ERROR 1048 (23000) at line 89 in file: 'storedProc.sql': Column 'amount' cannot be null.
-	- how is it the price feed is populated? by npm start?
-
 */
