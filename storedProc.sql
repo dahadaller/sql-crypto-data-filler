@@ -112,7 +112,9 @@ BEGIN
 			FROM price_feed, wallets
 			WHERE price_feed.exchange = wallets.exchange
 			AND price_feed.coin = coin_name
+			LIMIT 1
 		)
+		LIMIT 1
 	);
 
 	SET @price_bought = (
@@ -167,13 +169,15 @@ BEGIN
 	SET @current_price_on_my_exchange = (
 		SELECT price
 		FROM price_feed
-		WHERE coin = NEW.coin 
+		WHERE coin = 1 
 		AND date = (
 			SELECT max(price_feed.date)
 			FROM price_feed, wallets
 			WHERE price_feed.exchange = wallets.exchange /*exchange already present in wallet*/
-			AND price_feed.coin = NEW.coin
-		)
+			AND price_feed.coin = 1
+			LIMIT 1
+		) 
+		LIMIT 1
 	);
 
 	CALL Compare_Current_to_Bought(NEW.coin, @truth_value);
@@ -181,7 +185,7 @@ BEGIN
 	IF
 		/*1 You have the NEW.coin in your wallets and the amount (of coin) is more than zero*/
 		NEW.coin IN (
-			SELECT * 
+			SELECT coin 
 			FROM wallets
 			WHERE wallets.coin = NEW.coin 
 			AND amount>0
@@ -205,11 +209,13 @@ BEGIN
 			SET @current_exchange_price = (
 					SELECT price
 					FROM price_feed
-					WHERE coin=NEW.coin 
+					WHERE coin = NEW.coin 
+					AND exchange = NEW.exchange
 					AND date = (
 						SELECT max(date)
 						FROM price_feed
 						WHERE exchange = NEW.exchange
+						AND coin = NEW.coin 
 				)
 			);
 
